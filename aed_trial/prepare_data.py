@@ -29,11 +29,11 @@ def load_transcripts(features_path):
 
 def encode_data():
     chars = list(string.ascii_lowercase)
-    additional_chars = ['\'', ' ']
+    additional_chars = ['\'', ' ', 'ĉ', 'ĝ', 'ĥ', 'ĵ', 'ŝ', 'ŭ', '—', '–', '“', '”', '„', '‘', '’', '«', '»', '(', ')', '?']
     chars += additional_chars
 
-    char2idx = {'<sos>': 1, '<eos>': 2}
-    idx2char = {1: '<sos>', 2: '<eos>'}
+    char2idx = {'<null>': 0, '<sos>': 1, '<eos>': 2}
+    idx2char = {0: '<null>', 1: '<sos>', 2: '<eos>'}
 
     for c in chars:
         if c not in char2idx.keys():

@@ -1,29 +1,14 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # **End-To-End Automatic Speech Recognition**
-# 
-# The E2E models typically consist of one model that does all the work, in comparison to the conventional models that are composed of acoustic model, language model and lexicon.
-# There are two main approaches for doing E2E ASR, the connectionist temporal classification (CTC) and attention-based encoder-decoder (AED).
-# 
-# In this exercise, we will see a simple example of doing E2E ASR using attention-based encoder-decoder architecture. The model is pre-trained on the LibriSpeech dataset, which contains recordings of about 1000 hours. 
-# 
-# Throughout the exercise, you will test the performance of the model on various test sets and see how the perormance varies depending on the test set being used. Additionally, you will familiarize yourself with how the decoding is done and what are some advantages and drawbacks of it.
-# 
-# The answers should be uploaded to mycourses page in a PDF format.
-
 # ## **Data preparation**
 # 
 # The first thing that we need to do it to prepare the data . We will start by importing the necessary libraries. The model is developed using the Pytorch deep learning framework. More details about Pytorch can be found [here](https://pytorch.org/).
-
-# In[ ]:
-
 
 # The 'numpy' library contains functions for various vector and matrix operations
 import numpy as np
 
 # jiwer is a library for calculating the WER
-# get_ipython().system('pip install jiwer')
 from jiwer import wer
 
 # 'torch' is the deep learning framework that we are going to use to develop, train and test the model
@@ -42,102 +27,37 @@ from train import train
 # 'calculate_wer' contains a script for calculating the word error rate (WER)
 from calculate_wer import get_word_error_rate
 
+from gibberish_esperanto import FileHelper
 
 # To ensure that we get the same results every time we run the exercise, we can set a seed for generating random numbers, using the command `torch.manual_seed(0)`.
 # 
 # The Pytorch framework allows the computations to be done on a CPU or a GPU. The command `torch.device("cuda:0" if torch.cuda.is_available() else "cpu")` checks if a GPU with CUDA is installed, and if it is, it will run the computations on it, otherwise it will run everything on the CPU. 
 
-# In[ ]:
-
-
 torch.manual_seed(0)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device
 
-
-# The cell below loads the test data that we will use to evaluate the model. For features, we will use log filter banks, with 40 filters. The targets consist of manually annotated transcripts.
-# 
-# 1. The `test_clean` is a subset of the LibriSpeech dataset, that has utterances on which the system achieves lower WER.
-# 
-# 2. The `test_other` is a subset of the LibriSpeech dataset, that has utterances on which the system achieves higher WER.
-# 
-# 3. The `test_long` is a subser of the LibriSpeech dataset, that has long utterances.
-# 
-# You can find more information about the dataset in the [original paper](http://www.danielpovey.com/files/2015_icassp_librispeech.pdf)
-
-# In[ ]:
-
-
-features_test_clean = prepare_data.load_features('data/test_clean.npy')
-target_test_clean = prepare_data.load_transcripts('data/test_clean.txt')
-
-features_test_other = prepare_data.load_features('data/test_other.npy')
-target_test_other = prepare_data.load_transcripts('data/test_other.txt')
-
-features_test_long = prepare_data.load_features('data/test_long.npy')
-target_test_long = prepare_data.load_transcripts('data/test_long.txt')
-
-
-# With the cell below, we can inspect the shape of the features of the first data point.
-
-# In[ ]:
-
-
-features_test_clean[0].size()
-
-
-# In this case, the first value (1042) is the number of frames and the second value (40) is the number of filters.
-
-# Since we will be using a pre-trained model, we don't need train and development sets. In case some students want to see how the training runs, we will assign the training and development sets to be same as the test set. That way, there will be some training data to play with.
-
-# In[ ]:
-
-
-features_train = features_test_clean
-target_train = target_test_clean
-features_dev = features_test_clean
-target_dev = target_test_clean
-
+file_helper = FileHelper("../geo_ASR_challenge_2024")
+features_train, target_train = file_helper.read("train.csv")
+features_val, target_val = file_helper.read("dev.csv")
+features_test, target_test = file_helper.read("test_release.csv")
 
 # Next, we want to create dictionaries that map each character to an index and vice versa. The whole character set consists of all the  lower-case characters, plus empty space ` `, ` ' `, and the special tokens `<sos>` and `<eos>`, indicating the start and the end of each sample.
-
-# In[ ]:
-
 
 char2idx, idx2char = prepare_data.encode_data()
 print(char2idx)
 
-
 # Using the cell below, we can replace each character in the transcripts with the appropriate index.
-
-# In[ ]:
-
 
 # convert labels to indices
 indexed_target_train = prepare_data.label_to_idx(target_train, char2idx)
-indexed_target_dev = prepare_data.label_to_idx(target_dev, char2idx)
-indexed_target_test_clean = prepare_data.label_to_idx(target_test_clean, char2idx)
-indexed_target_test_other = prepare_data.label_to_idx(target_test_other, char2idx)
-indexed_target_test_long = prepare_data.label_to_idx(target_test_long, char2idx)
-
-
-# Next, we will group the features and the indexed targets in a tuple.
-
-# In[ ]:
-
+indexed_target_val = prepare_data.label_to_idx(target_val, char2idx)
+indexed_target_test = prepare_data.label_to_idx(target_test, char2idx)
 
 # combine features and labels in a tuple
 train_data = prepare_data.combine_data(features_train, indexed_target_train)
-dev_data = prepare_data.combine_data(features_dev, indexed_target_dev)
-test_clean_data = prepare_data.combine_data(features_test_clean, indexed_target_test_clean)
-test_other_data = prepare_data.combine_data(features_test_other, indexed_target_test_other)
-test_long_data = prepare_data.combine_data(features_test_long, indexed_target_test_long)
-
-
-# The next cell divides the data in equal batches that are used for training.
-
-# In[ ]:
-
+val_data = prepare_data.combine_data(features_val, indexed_target_val)
+test_data = prepare_data.combine_data(features_test, indexed_target_test)
 
 batch_size = 10
 
@@ -148,7 +68,7 @@ pairs_batch_train = DataLoader(dataset=train_data,
                     collate_fn=prepare_data.collate,
                     pin_memory=True)
 
-pairs_batch_dev = DataLoader(dataset=dev_data,
+pairs_batch_val   = DataLoader(dataset=val_data,
                     batch_size=batch_size,
                     drop_last=True,
                     shuffle=False,
@@ -279,11 +199,7 @@ class Decoder(nn.Module):
         
         return scores
 
-
-# In the cell below, we define the hyperparameters of the network:
-
-# In[ ]:
-
+# we define the hyperparameters of the network:
 
 encoder_layers = 5
 decoder_layers = 1
@@ -297,15 +213,9 @@ num_filters = 100
 encoder_lr = 0.0005
 decoder_lr = 0.0005
 
-num_epochs = 10
+num_epochs = 1
 MAX_LENGTH = 800
-skip_training = True
-
-
-# Next, we are going to initialize the encoder, decoder and the optimizers:
-
-# In[ ]:
-
+skip_training = False
 
 # initialize the Encoder
 encoder = Encoder(features_train[0].size(1), encoder_hidden_size, encoder_layers).to(device)
@@ -315,11 +225,7 @@ encoder_optimizer = optim.Adam(encoder.parameters(), lr=encoder_lr)
 decoder = Decoder(embedding_dim_chars, encoder_hidden_size, attention_hidden_size, len(char2idx)+1, decoder_layers, encoder_layers, num_filters, batch_size, device).to(device)
 decoder_optimizer = optim.Adam(decoder.parameters(), lr=decoder_lr)
 
-
 # Now, count the number of trainable parameters:
-
-# In[ ]:
-
 
 print(encoder)
 print(decoder)
@@ -336,13 +242,10 @@ print('The number of trainable parameters is: %d' % (total_trainable_params_enco
 # 
 # Although it is not necessary for this exercise, if you want to see how the training is done, you can set the variable `skip_training` to `False`. For testing purposes, the training and development sets are the same as the test set. In practice we need to have separate training and development sets.
 
-# In[ ]:
-
-
 if skip_training == False:
     # The criterion is the loss function that we are going to use. In this case it is the negative log-likelihood loss.
     criterion = nn.NLLLoss(ignore_index=0, reduction='mean')
-    train(pairs_batch_train, pairs_batch_dev, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, batch_size, num_epochs, device)
+    train(pairs_batch_train, pairs_batch_val, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, batch_size, num_epochs, device)
 else:
     # load the pre-trained model
     checkpoint = torch.load('weights/state_dict_10.pt', map_location=torch.device('cpu'))
@@ -392,7 +295,7 @@ def greedy_decoding(encoder, decoder, batch_size, idx2char, test_data, MAX_LENGT
                 decoder_output,  decoder_hidden, attn_weights = decoder(decoder_input, decoder_hidden, encoder_output, attn_weights)
                 _, topi = decoder_output.topk(1)
                 decoder_input = topi.detach()
-                
+
                 # if we get `<eos>`, stop the decoding
                 if topi.item() == 2:
                     break
@@ -419,87 +322,28 @@ def greedy_decoding(encoder, decoder, batch_size, idx2char, test_data, MAX_LENGT
         print('\n')
         print('Word error rate: ', wer(all_labels, all_predictions))
 
-
-# In[ ]:
-
-
 batch_size = 1
 
-pairs_batch_test_clean = DataLoader(dataset=test_clean_data,
+pairs_batch_test  = DataLoader(dataset=test_data,
                     batch_size=batch_size,
+                    drop_last=True,
                     shuffle=False,
                     collate_fn=prepare_data.collate,
                     pin_memory=True)
-
-pairs_batch_test_other = DataLoader(dataset=test_other_data,
-                    batch_size=batch_size,
-                    shuffle=False,
-                    collate_fn=prepare_data.collate,
-                    pin_memory=True)
-
-pairs_batch_test_long = DataLoader(dataset=test_long_data,
-                    batch_size=batch_size,
-                    shuffle=False,
-                    collate_fn=prepare_data.collate,
-                    pin_memory=True)
-
-
-# The variables `pairs_batch_test_clean`, `pairs_batch_test_other` and `pairs_batch_test_long` contain subsets of the LibriSpeech test set.
-# With the command below, we can test the performance of the model on the data stored in `pairs_batch_test_clean`.
-
-# In[ ]:
-
 
 print_predictions = False
-greedy_decoding(encoder, decoder, batch_size, idx2char, pairs_batch_test_clean, MAX_LENGTH, print_predictions)
+greedy_decoding(encoder, decoder, batch_size, idx2char, pairs_batch_test, MAX_LENGTH, print_predictions)
 
 
 # By running the cell below, we can compare the predictions against the true labels for the first 10 samples of the dataset.
 
-# In[ ]:
-
-
 print_predictions = True
-test_clean_subset = test_clean_data[:10]
+test_data_subset = test_data[:10]
 
-pairs_batch_clean_subset = DataLoader(dataset=test_clean_subset,
+pairs_batch_test_subset = DataLoader(dataset=test_data_subset,
                     batch_size=batch_size,
                     shuffle=False,
                     collate_fn=prepare_data.collate,
                     pin_memory=True)
-greedy_decoding(encoder, decoder, batch_size, idx2char, pairs_batch_clean_subset, MAX_LENGTH, print_predictions)
-
-
-# ### Question 1:
-# 
-# 1. Report the WER on the data stored in `pairs_batch_test_clean` and `pairs_batch_test_other`. Use up to two decimal points.
-# 
-# 2. Why do you think the WER is worse on `pairs_batch_test_other`? Which factors could impact the performance?
-
-# ### Question 2:
-# 
-# The variable `pairs_batch_test_long` contains a subset of the clean LibriSpeech test set, where the utterances are longer (longer sentences being spoken). 
-# 
-# 1. Test the performance of the model on the data stored in `pairs_batch_test_long` (use up to two decimal points). How do long utterances affect the performance of the model?
-# 
-# 2. Why do you think that is the case?
-
-# ### Question 3:
-# 
-# 1. As a decoding strategy, we are using greedy decoding. What are the pros and cons of this?
-# 
-# 2. Propose a better decoding algorithm that overcomes the downsides of greedy decoding.
-
-# ### Question 4:
-# 
-# In the current implementation of the `Encoder`, we are using a standard BLSTM for processing the input features.
-# 
-# 1. What are the issues with using this type of `Encoder`?
-# 
-# 2. How can those issues be solved?
-
-# In[ ]:
-
-
-
+greedy_decoding(encoder, decoder, batch_size, idx2char, pairs_batch_test_subset, MAX_LENGTH, print_predictions)
 
