@@ -200,7 +200,7 @@ class PlotHelper:
         plt.show()
 
 # Read Data
-data_dir = "../speech_recognition_data"
+data_dir = "../geo_ASR_challenge_2024"
 file_helper = FileHelper(data_dir)
 wav_file_list, text_label_list, sample_rate_list, data_list = file_helper.read_data("train.csv")
 
@@ -274,7 +274,6 @@ mfcc_transform = torchaudio.transforms.MFCC(
 )
 
 mfcc_torch = mfcc_transform(waveform)
-mfcc_torch = 10 * torch.log10(mfcc_torch + 1e-10)
 
 # Plot results
 plot_helper = PlotHelper()

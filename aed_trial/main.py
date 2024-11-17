@@ -35,12 +35,12 @@ from gibberish_esperanto import FileHelper
 
 torch.manual_seed(0)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-device
+print("Using device ", device)
 
 file_helper = FileHelper("../geo_ASR_challenge_2024")
-features_train, target_train = file_helper.read("train.csv")
-features_val, target_val = file_helper.read("dev.csv")
-features_test, target_test = file_helper.read("test_release.csv")
+features_train, target_train, wav_files_train = file_helper.read("train.csv")
+features_val, target_val, wav_files_val = file_helper.read("dev.csv")
+features_test, target_test, wav_files_test = file_helper.read("test_release.csv")
 
 # Next, we want to create dictionaries that map each character to an index and vice versa. The whole character set consists of all the  lower-case characters, plus empty space ` `, ` ' `, and the special tokens `<sos>` and `<eos>`, indicating the start and the end of each sample.
 
@@ -215,7 +215,6 @@ decoder_lr = 0.0005
 
 num_epochs = 1
 MAX_LENGTH = 800
-skip_training = False
 
 # initialize the Encoder
 encoder = Encoder(features_train[0].size(1), encoder_hidden_size, encoder_layers).to(device)
@@ -237,29 +236,32 @@ print('The number of trainable parameters is: %d' % (total_trainable_params_enco
 
 
 # ## **Training**
-# 
-# This section implements the trainng of the E2E model. As a loss function, we are going to use negative log-likelihood. The function `train()` does the training. Since training an E2E model requires a lot of time and computational power, we will skip the training and load a pre-trained model instead.
-# 
-# Although it is not necessary for this exercise, if you want to see how the training is done, you can set the variable `skip_training` to `False`. For testing purposes, the training and development sets are the same as the test set. In practice we need to have separate training and development sets.
 
-if skip_training == False:
-    # The criterion is the loss function that we are going to use. In this case it is the negative log-likelihood loss.
-    criterion = nn.NLLLoss(ignore_index=0, reduction='mean')
-    train(pairs_batch_train, pairs_batch_val, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, batch_size, num_epochs, device)
-else:
-    # load the pre-trained model
-    checkpoint = torch.load('weights/state_dict_10.pt', map_location=torch.device('cpu'))
+model_name = 'weights/gibberish_esperanto.pt'
+training_needed = False
+
+try:
+    checkpoint = torch.load(model_name)
     encoder.load_state_dict(checkpoint['encoder'])
     decoder.load_state_dict(checkpoint['decoder'])
+except:
+    training_needed = True
 
+if not training_needed:
+    print("Model found - training not needed")
+else:
+    print("Model not found - training needed")
+    criterion = nn.NLLLoss(ignore_index=0, reduction='mean')
+    train(pairs_batch_train, pairs_batch_val, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, batch_size, num_epochs, device)
+    torch.save({
+        'encoder': encoder.state_dict(),
+        'decoder': decoder.state_dict()
+    }, model_name)
 
 # ## **Inference**
 # Next, we are going to test the model's performance. The function `greedy_decoding()` uses the trained model to generate transcripts based on audio features. The greedy decoding takes the output of the decoder, which is a probability distribution over all the characters, and picks the most probable one at each timestep. The prediction of the current character is conditioned on the previous predictions. You can familiarize yourself more with various types of decoding strategies [here](https://medium.com/voice-tech-podcast/visualising-beam-search-and-other-decoding-algorithms-for-natural-language-generation-fbba7cba2c5b#:~:text=In%20the%20greedy%20decoder%2C%20we,to%20keep%20at%20every%20step.).
 # 
 # For assessing the performance, we are going to use the WER metric.
-
-# In[ ]:
-
 
 def greedy_decoding(encoder, decoder, batch_size, idx2char, test_data, MAX_LENGTH, print_predictions):
     print('Evaluating...')
@@ -321,6 +323,7 @@ def greedy_decoding(encoder, decoder, batch_size, idx2char, test_data, MAX_LENGT
             
         print('\n')
         print('Word error rate: ', wer(all_labels, all_predictions))
+        return all_predictions
 
 batch_size = 1
 
@@ -332,18 +335,6 @@ pairs_batch_test  = DataLoader(dataset=test_data,
                     pin_memory=True)
 
 print_predictions = False
-greedy_decoding(encoder, decoder, batch_size, idx2char, pairs_batch_test, MAX_LENGTH, print_predictions)
-
-
-# By running the cell below, we can compare the predictions against the true labels for the first 10 samples of the dataset.
-
-print_predictions = True
-test_data_subset = test_data[:10]
-
-pairs_batch_test_subset = DataLoader(dataset=test_data_subset,
-                    batch_size=batch_size,
-                    shuffle=False,
-                    collate_fn=prepare_data.collate,
-                    pin_memory=True)
-greedy_decoding(encoder, decoder, batch_size, idx2char, pairs_batch_test_subset, MAX_LENGTH, print_predictions)
+all_predictions = greedy_decoding(encoder, decoder, batch_size, idx2char, pairs_batch_test, MAX_LENGTH, print_predictions)
+file_helper.write_submission_file("test_release.csv", wav_files_test, all_predictions)
 

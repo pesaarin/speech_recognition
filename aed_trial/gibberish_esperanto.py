@@ -69,7 +69,7 @@ class FileHelper:
         n_fft = 640
         sample_rate = 16000
         n_mels = 40
-        n_mfcc =40
+        n_mfcc = 12
 
         mfcc_transform = torchaudio.transforms.MFCC(
             sample_rate=sample_rate,
@@ -83,7 +83,6 @@ class FileHelper:
         )
 
         mfcc = mfcc_transform(waveform)
-        mfcc = 10 * torch.log10(mfcc + 1e-10)    
         mfcc = torch.transpose(mfcc, 0, 1)
         return mfcc
 
@@ -110,9 +109,5 @@ class FileHelper:
             mfcc_list.append(mfcc)
         mfcc_list = self.convert_data(data_list)
         label_list = self.convert_labels(text_label_list)
-        return mfcc_list, label_list
-
-
-
-
+        return mfcc_list, label_list, wav_file_list
 
