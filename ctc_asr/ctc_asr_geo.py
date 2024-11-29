@@ -59,8 +59,8 @@ wavs_path = data_path
 file_helper = FileHelper(data_path)
 train_wav_file_list, train_text_label_list, train_sample_rate_list, train_data_list = file_helper.read_data('train.csv')
 
-train_data_list = train_data_list[:1000]
-train_text_label_list = train_text_label_list[:1000]
+#train_data_list = train_data_list[:32]
+#train_text_label_list = train_text_label_list[:32]
 
 train_data_list = tf.ragged.constant(train_data_list)
 
@@ -78,6 +78,16 @@ val_dataset = tf.data.Dataset.from_tensor_slices(
 )
 
 val_dataset = val_dataset.map(preprocess, num_parallel_calls=tf.data.AUTOTUNE).padded_batch(batch_size).prefetch(buffer_size=tf.data.AUTOTUNE)
+
+test_wav_file_list, test_text_label_list, test_sample_rate_list, test_data_list = file_helper.read_data('test_release.csv')
+
+test_data_list = tf.ragged.constant(test_data_list)
+
+test_dataset = tf.data.Dataset.from_tensor_slices(
+    (test_data_list, test_text_label_list)
+)
+
+test_dataset = test_dataset.map(preprocess, num_parallel_calls=tf.data.AUTOTUNE).padded_batch(batch_size).prefetch(buffer_size=tf.data.AUTOTUNE)
 
 fig = plt.figure(figsize=(8, 5))
 for batch in train_dataset.take(1):
@@ -100,6 +110,7 @@ for batch in train_dataset.take(1):
     #display.display(display.Audio(np.transpose(audio), rate=16000))
 plt.show()
 
+@keras.saving.register_keras_serializable()
 def CTCLoss(y_true, y_pred):
     # Compute the training-time loss value
     batch_len = tf.cast(tf.shape(y_true)[0], dtype="int64")
@@ -172,15 +183,6 @@ def build_model(input_dim, output_dim, rnn_layers=5, rnn_units=128):
     model.compile(optimizer=opt, loss=CTCLoss)
     return model
 
-
-# Get the model
-model = build_model(
-    input_dim=fft_length // 2 + 1,
-    output_dim=char_to_num.vocabulary_size(),
-    rnn_units=512,
-)
-model.summary(line_length=110)
-
 # A utility function to decode the output of the network
 def decode_batch_predictions(pred):
     input_len = np.ones(pred.shape[0]) * pred.shape[1]
@@ -224,17 +226,35 @@ class CallbackEval(keras.callbacks.Callback):
             print(f"Prediction: {predictions[i]}")
             print("-" * 100)
 
-# Define the number of epochs.
-epochs = 1
-# Callback function to check transcription on the val set.
-validation_callback = CallbackEval(val_dataset)
-# Train the model
-history = model.fit(
-    train_dataset,
-    validation_data=val_dataset,
-    epochs=epochs,
-    callbacks=[validation_callback],
-)
+training_needed = False
+model = None
+try:
+    model = tf.keras.models.load_model('ctc_asr.keras')
+except:
+    training_needed = True
+
+if training_needed:
+    # Get the model
+    model = build_model(
+        input_dim=fft_length // 2 + 1,
+        output_dim=char_to_num.vocabulary_size(),
+        rnn_units=512,
+    )
+    model.summary(line_length=110)
+
+    # Define the number of epochs.
+    epochs = 50
+    # Callback function to check transcription on the val set.
+    validation_callback = CallbackEval(val_dataset)
+    # Train the model
+    history = model.fit(
+        train_dataset,
+        validation_data=val_dataset,
+        epochs=epochs,
+        callbacks=[validation_callback],
+    )
+    # Save the entire model as a `.keras` zip archive.
+    model.save('ctc_asr.keras')
 
 # Let's check results on more validation samples
 predictions = []
@@ -255,4 +275,16 @@ for i in np.random.randint(0, len(predictions), 5):
     print(f"Target    : {targets[i]}")
     print(f"Prediction: {predictions[i]}")
     print("-" * 100)
+
+# Let's check results on more test samples
+predictions = []
+targets = []
+for batch in test_dataset:
+    X, y = batch
+    batch_predictions = model.predict(X)
+    batch_predictions = decode_batch_predictions(batch_predictions)
+    predictions.extend(batch_predictions)
+
+file_helper.write_submission_file('test_release.csv', test_wav_file_list, predictions)
+
 
