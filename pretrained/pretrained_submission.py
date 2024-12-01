@@ -1,8 +1,3 @@
-#The changes found in the dev set by the confusion matrix are:
-#i<->e
-#k<->g
-#v<->f
-
 import pandas as pd
 import torch
 import torchaudio
@@ -10,17 +5,13 @@ import soundfile as sf
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 import re
 import os
-from jiwer import wer
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
-import matplotlib.pyplot as plt
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-df = pd.read_csv("geo_ASR_challenge_2024/dev.csv")
+
+df = pd.read_csv("geo_ASR_challenge_2024/test_release.csv")
 
 processor = Wav2Vec2Processor.from_pretrained("cpierse/wav2vec2-large-xlsr-53-esperanto")
 model = Wav2Vec2ForCTC.from_pretrained("cpierse/wav2vec2-large-xlsr-53-esperanto").to(device)
-
-
 
 resampler = torchaudio.transforms.Resample(orig_freq=48000, new_freq=16000)
 
@@ -32,7 +23,7 @@ def process_audio(path):
         speech_array = resampler(torch.tensor(speech_array).unsqueeze(0)).squeeze(0).numpy()
     return speech_array
 
-def evaluate_single(path, text):
+def predict_transcript(path):
     speech = process_audio(path)
 
     inputs = processor(
@@ -47,27 +38,26 @@ def evaluate_single(path, text):
     pred_ids = torch.argmax(logits, dim=-1)
     predicted_text = processor.batch_decode(pred_ids)[0]
 
-    return predicted_text, text
-
+    # Apply known fixes for common errors
+    predicted_text = predicted_text.replace("k", "_").replace("g", "k").replace("_", "g")
+    predicted_text = predicted_text.replace("i", "_").replace("e", "i").replace("_", "e")
+    predicted_text = predicted_text.replace("f", "_").replace("v", "f").replace("_", "v")
+    
+    return predicted_text
 
 predictions = []
-references = []
-errors = []
-
 for idx, row in df.iterrows():
     full_path = os.path.join("geo_ASR_challenge_2024", row["file"])
     full_path = os.path.normpath(full_path)
     
-    
-    predicted, reference = evaluate_single(full_path, row["transcript"])
-    #some string manipulation to turn gibberish Esperanto into Esperanto
-    predicted = predicted.replace("k", "_").replace("g", "k").replace("_", "g")
-    predicted = predicted.replace("i", "_").replace("e", "i").replace("_", "e")
-    predicted = predicted.replace("f", "_").replace("v", "f").replace("_", "v")
+    predicted = predict_transcript(full_path)
     predictions.append(predicted)
-    references.append(reference)
-    print(f"Row {idx + 1}: Prediction: {predicted} | Reference: {reference}")
+    print(f"Row {idx + 1}: Prediction: {predicted}")
 
 
-total_wer = wer(references, predictions)
-print(f"Total WER for dataset: {total_wer:.2%}")
+df['transcript'] = predictions
+
+output_path = "geo_ASR_challenge_2024/test_release_predictions.csv"
+df.to_csv(output_path, index=False)
+
+print(f"Predictions saved to {output_path}")
