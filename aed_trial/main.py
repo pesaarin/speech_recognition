@@ -213,7 +213,7 @@ num_filters = 100
 encoder_lr = 0.0005
 decoder_lr = 0.0005
 
-num_epochs = 1
+num_epochs = 50
 MAX_LENGTH = 800
 
 # initialize the Encoder
@@ -337,4 +337,17 @@ pairs_batch_test  = DataLoader(dataset=test_data,
 print_predictions = False
 all_predictions = greedy_decoding(encoder, decoder, batch_size, idx2char, pairs_batch_test, MAX_LENGTH, print_predictions)
 file_helper.write_submission_file("test_release.csv", wav_files_test, all_predictions)
+
+
+print_predictions = True
+val_data_subset = val_data[:10]
+pairs_batch_test_subset = DataLoader(dataset=val_data_subset,
+                    batch_size=batch_size,
+                    shuffle=False,
+                    collate_fn=prepare_data.collate,
+                    pin_memory=True)
+all_predictions = greedy_decoding(encoder, decoder, batch_size, idx2char, pairs_batch_test_subset, MAX_LENGTH, print_predictions)
+for i in range(10):
+    print("prediction: ", all_predictions[i])
+    print("target: ", target_val[i])
 
