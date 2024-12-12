@@ -10,9 +10,9 @@ from scipy.io import wavfile
 from gibberish_esperanto import FileHelper
 
 # The set of characters accepted in the transcription.
-characters = [x for x in "abcdefghijklmnopqrstuvwxyz'?! "]
+characters = [x for x in "abcdefghijklmnopqrstuvwxyz "]
 
-additional_chars = ['ĉ', 'ĝ', 'ĥ', 'ĵ', 'ŝ', 'ŭ', '—', '–', '“', '”', '„', '‘', '’', '«', '»', '(', ')']
+additional_chars = ['ĉ', 'ĝ', 'ĥ', 'ĵ', 'ŝ', 'ŭ'  ]
 characters += additional_chars
     
 print("Characters:", characters)
@@ -46,6 +46,7 @@ def preprocess(audio, label):
 
     label = tf.convert_to_tensor(label, dtype=tf.string)
     label = tf.strings.lower(label)
+    label = tf.strings.regex_replace(label, "['?!—–“”„‘’«»()]", "")
     label = tf.strings.unicode_split(label, input_encoding="UTF-8")
     label = char_to_num(label)
     return spectrogram, label
@@ -226,14 +227,12 @@ class CallbackEval(keras.callbacks.Callback):
             print(f"Prediction: {predictions[i]}")
             print("-" * 100)
 
-training_needed = False
+training_needed = True
 model = None
 try:
     model = tf.keras.models.load_model('ctc_asr.keras')
 except:
     training_needed = True
-
-if training_needed:
     # Get the model
     model = build_model(
         input_dim=fft_length // 2 + 1,
@@ -241,6 +240,8 @@ if training_needed:
         rnn_units=512,
     )
     model.summary(line_length=110)
+
+if training_needed:
 
     # Define the number of epochs.
     epochs = 50
